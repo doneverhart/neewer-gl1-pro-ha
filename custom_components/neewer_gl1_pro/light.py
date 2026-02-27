@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -18,12 +19,19 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     DOMAIN,
+    NOTIFY_CHARACTERISTIC_UUID,
     POWER_OFF_COMMAND,
     POWER_ON_COMMAND,
+    STATUS_OFF,
+    STATUS_ON,
+    STATUS_TAG,
     WRITE_CHARACTERISTIC_UUID,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Timeout for waiting for a status notification after sending a command
+NOTIFY_TIMEOUT = 5.0
 
 
 async def async_setup_entry(
@@ -43,7 +51,6 @@ class NeewerGL1ProLight(LightEntity):
     _attr_name = None
     _attr_supported_color_modes = {ColorMode.ONOFF}
     _attr_color_mode = ColorMode.ONOFF
-    _attr_assumed_state = True
 
     def __init__(
         self, hass: HomeAssistant, entry: ConfigEntry, address: str
@@ -60,36 +67,58 @@ class NeewerGL1ProLight(LightEntity):
             model="GL1 Pro",
         )
 
-    async def _send_command(self, command: bytes) -> None:
-        """Connect to the device and send a GATT write command."""
-        try:
-            # Try HA's Bluetooth integration first (works with auto-discovered devices)
-            ble_device = async_ble_device_from_address(self._hass, self._address)
-            if ble_device is not None:
-                client = await establish_connection(
-                    BleakClientWithServiceCache,
-                    ble_device,
-                    self._address,
-                )
-                try:
-                    await client.write_gatt_char(
-                        WRITE_CHARACTERISTIC_UUID, command
-                    )
-                finally:
-                    await client.disconnect()
-                return
-
-            # Fallback: connect directly by address (for manually added devices)
-            _LOGGER.debug(
-                "Device %s not in HA Bluetooth cache, connecting directly",
+    async def _connect(self) -> BleakClient:
+        """Connect to the device, trying HA Bluetooth cache first, then direct."""
+        ble_device = async_ble_device_from_address(self._hass, self._address)
+        if ble_device is not None:
+            return await establish_connection(
+                BleakClientWithServiceCache,
+                ble_device,
                 self._address,
             )
-            client = BleakClient(self._address)
-            await client.connect()
+
+        _LOGGER.debug(
+            "Device %s not in HA Bluetooth cache, connecting directly",
+            self._address,
+        )
+        client = BleakClient(self._address)
+        await client.connect()
+        return client
+
+    async def _send_command(self, command: bytes) -> bool | None:
+        """Send a command and wait for the status notification.
+
+        Returns True if on, False if off, None if no response received.
+        """
+        status_event = asyncio.Event()
+        result: list[bool | None] = [None]
+
+        def on_notify(_sender: Any, data: bytearray) -> None:
+            # Status response: [0x78, 0x02, 0x01, state, checksum]
+            if len(data) >= 4 and data[1] == STATUS_TAG:
+                state = data[3]
+                if state == STATUS_ON:
+                    result[0] = True
+                elif state == STATUS_OFF:
+                    result[0] = False
+                status_event.set()
+
+        try:
+            client = await self._connect()
             try:
-                await client.write_gatt_char(
-                    WRITE_CHARACTERISTIC_UUID, command
-                )
+                await client.start_notify(NOTIFY_CHARACTERISTIC_UUID, on_notify)
+                await client.write_gatt_char(WRITE_CHARACTERISTIC_UUID, command)
+
+                try:
+                    await asyncio.wait_for(status_event.wait(), NOTIFY_TIMEOUT)
+                except TimeoutError:
+                    _LOGGER.debug(
+                        "No status notification from %s within %ss",
+                        self._address,
+                        NOTIFY_TIMEOUT,
+                    )
+
+                await client.stop_notify(NOTIFY_CHARACTERISTIC_UUID)
             finally:
                 await client.disconnect()
         except BleakError as err:
@@ -97,14 +126,16 @@ class NeewerGL1ProLight(LightEntity):
                 "Failed to send command to %s: %s", self._address, err
             )
 
+        return result[0]
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the light on."""
-        await self._send_command(POWER_ON_COMMAND)
-        self._attr_is_on = True
+        status = await self._send_command(POWER_ON_COMMAND)
+        self._attr_is_on = status if status is not None else True
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the light off."""
-        await self._send_command(POWER_OFF_COMMAND)
-        self._attr_is_on = False
+        status = await self._send_command(POWER_OFF_COMMAND)
+        self._attr_is_on = status if status is not None else False
         self.async_write_ha_state()
