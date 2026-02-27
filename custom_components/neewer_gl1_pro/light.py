@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from bleak import BleakError
+from bleak import BleakClient, BleakError
 from bleak_retry_connector import establish_connection, BleakClientWithServiceCache
 
 from homeassistant.components.bluetooth import async_ble_device_from_address
@@ -62,17 +62,30 @@ class NeewerGL1ProLight(LightEntity):
 
     async def _send_command(self, command: bytes) -> None:
         """Connect to the device and send a GATT write command."""
-        ble_device = async_ble_device_from_address(self._hass, self._address)
-        if ble_device is None:
-            _LOGGER.error("Device %s not found via Bluetooth", self._address)
-            return
-
         try:
-            client = await establish_connection(
-                BleakClientWithServiceCache,
-                ble_device,
+            # Try HA's Bluetooth integration first (works with auto-discovered devices)
+            ble_device = async_ble_device_from_address(self._hass, self._address)
+            if ble_device is not None:
+                client = await establish_connection(
+                    BleakClientWithServiceCache,
+                    ble_device,
+                    self._address,
+                )
+                try:
+                    await client.write_gatt_char(
+                        WRITE_CHARACTERISTIC_UUID, command
+                    )
+                finally:
+                    await client.disconnect()
+                return
+
+            # Fallback: connect directly by address (for manually added devices)
+            _LOGGER.debug(
+                "Device %s not in HA Bluetooth cache, connecting directly",
                 self._address,
             )
+            client = BleakClient(self._address)
+            await client.connect()
             try:
                 await client.write_gatt_char(
                     WRITE_CHARACTERISTIC_UUID, command
