@@ -7,13 +7,21 @@
         },
         "description": "Select the Neewer GL1 Pro light to add."
       },
+      "manual": {
+        "data": {
+          "address": "Bluetooth address"
+        },
+        "description": "No devices were auto-discovered. Enter the Bluetooth address manually (e.g. E3:AC:BD:19:C9:20)."
+      },
       "bluetooth_confirm": {
         "description": "Set up {name}?"
       }
     },
+    "error": {
+      "invalid_address": "Invalid Bluetooth address. Use format XX:XX:XX:XX:XX:XX."
+    },
     "abort": {
-      "already_configured": "Device is already configured.",
-      "no_devices_found": "No Neewer GL1 Pro devices found. Make sure the light is powered on and in Bluetooth range."
+      "already_configured": "Device is already configured."
     }
   }
 }

@@ -85,11 +85,37 @@ class NeewerGL1ProConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._discovered_devices[info.address] = info.name
 
         if not self._discovered_devices:
-            return self.async_abort(reason="no_devices_found")
+            return await self.async_step_manual()
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
                 vol.Required(CONF_ADDRESS): vol.In(self._discovered_devices),
             }),
+        )
+
+    async def async_step_manual(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle manual address entry."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            address = user_input[CONF_ADDRESS].strip().upper()
+            if len(address) != 17 or address.count(":") != 5:
+                errors[CONF_ADDRESS] = "invalid_address"
+            else:
+                await self.async_set_unique_id(address, raise_on_progress=False)
+                self._abort_if_unique_id_configured()
+                return self.async_create_entry(
+                    title=f"Neewer GL1 Pro ({address})",
+                    data={CONF_ADDRESS: address},
+                )
+
+        return self.async_show_form(
+            step_id="manual",
+            data_schema=vol.Schema({
+                vol.Required(CONF_ADDRESS): str,
+            }),
+            errors=errors,
         )
