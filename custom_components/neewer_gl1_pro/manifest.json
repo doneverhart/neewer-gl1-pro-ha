@@ -1,0 +1,16 @@
+{
+  "domain": "neewer_gl1_pro",
+  "name": "Neewer GL1 Pro",
+  "version": "1.0.0",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/your-username/neewer-gl1-pro-ha",
+  "iot_class": "local_polling",
+  "bluetooth": [
+    {
+      "local_name": "NEEWER-GL1*"
+    }
+  ],
+  "dependencies": ["bluetooth_adapters"],
+  "requirements": ["bleak-retry-connector>=4.0.0"]
+}

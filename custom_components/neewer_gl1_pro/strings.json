@@ -1,0 +1,19 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "address": "Device"
+        },
+        "description": "Select the Neewer GL1 Pro light to add."
+      },
+      "bluetooth_confirm": {
+        "description": "Set up {name}?"
+      }
+    },
+    "abort": {
+      "already_configured": "Device is already configured.",
+      "no_devices_found": "No Neewer GL1 Pro devices found. Make sure the light is powered on and in Bluetooth range."
+    }
+  }
+}
